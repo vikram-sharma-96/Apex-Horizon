@@ -15,20 +15,28 @@ import {
   Crosshair,
   ShieldAlert,
   Flame,
+  Car,
   X,
 } from 'lucide-react';
 import {
+  buildLiveryFromGarageSelection,
   CameraMode,
+  CAR_CATALOG,
   CAR_LIVERIES,
   CarLivery,
   CombatDifficulty,
+  GARAGE_PAINT_COLORS,
+  GarageSelectionState,
+  loadGarageSelection,
   RaceStatus,
   RaceTelemetry,
+  saveGarageSelection,
   TRACK_CONFIGS,
   TrackTheme,
 } from './types/racing';
 import { RacingCanvas, TouchDriveControls } from './components/RacingCanvas';
 import { TrackMinimap } from './components/TrackMinimap';
+import { GarageModal } from './components/GarageModal';
 import { soundEngine } from './audio/soundEngine';
 
 function formatLapTime(ms: number | null): string {
@@ -150,21 +158,26 @@ function PixelHeartIcon({
 
 function PixelHeartRow({
   hp,
+  maxHp = 100,
   prevHp,
   isFlashing,
   heartSize = 12,
 }: {
   hp: number;
+  maxHp?: number;
   prevHp: number;
   isFlashing: boolean;
   heartSize?: number;
 }) {
+  const safeMax = Math.max(1, maxHp);
+  const normHp = Math.round((hp / safeMax) * 100);
+  const normPrevHp = Math.round((prevHp / safeMax) * 100);
   return (
     <div className="flex items-center gap-0.5" role="img" aria-label={`${hp} HP in 10 hearts`}>
       {Array.from({ length: 10 }).map((_, i) => {
         const heartMin = i * 10;
-        const rem = Math.max(0, Math.min(10, hp - heartMin));
-        const prevRem = Math.max(0, Math.min(10, prevHp - heartMin));
+        const rem = Math.max(0, Math.min(10, normHp - heartMin));
+        const prevRem = Math.max(0, Math.min(10, normPrevHp - heartMin));
         const wasJustLost = isFlashing && prevRem > rem;
         const state: 'full' | 'half' | 'empty' | 'flash' = wasJustLost
           ? 'flash'
@@ -181,9 +194,15 @@ function PixelHeartRow({
 
 export default function App() {
   const [trackTheme, setTrackTheme] = useState<TrackTheme>('canyon');
-  const [livery, setLivery] = useState<CarLivery>(CAR_LIVERIES[0]);
+  const [garageSelection, setGarageSelection] = useState<GarageSelectionState>(
+    () => loadGarageSelection()
+  );
+  const [livery, setLivery] = useState<CarLivery>(() =>
+    buildLiveryFromGarageSelection(loadGarageSelection())
+  );
+  const [isGarageOpen, setIsGarageOpen] = useState<boolean>(true);
   const [cameraMode, setCameraMode] = useState<CameraMode>('chase');
-  const [raceStatus, setRaceStatus] = useState<RaceStatus>('countdown');
+  const [raceStatus, setRaceStatus] = useState<RaceStatus>('ready');
   const [combatMode, setCombatMode] = useState<boolean>(true);
   const [combatDifficulty, setCombatDifficulty] =
     useState<CombatDifficulty>('normal');
@@ -210,8 +229,34 @@ export default function App() {
     fireMissile: false,
   });
 
+  const handleOpenGarage = useCallback(() => {
+    soundEngine.init();
+    setActiveModal(null);
+    setRaceStatus((prev) => (prev === 'racing' ? 'paused' : prev));
+    setIsGarageOpen(true);
+  }, []);
+
+  const handleGarageSelect = useCallback(
+    (nextSelection: GarageSelectionState) => {
+      soundEngine.init();
+      saveGarageSelection(nextSelection);
+      setGarageSelection(nextSelection);
+      setLivery(buildLiveryFromGarageSelection(nextSelection));
+      setIsGarageOpen(false);
+      setResetSignal((prev) => prev + 1);
+      setRaceStatus('countdown');
+    },
+    []
+  );
+
+  const handleGarageClose = useCallback(() => {
+    setGarageSelection(loadGarageSelection());
+    setIsGarageOpen(false);
+  }, []);
+
   const handleStartOrToggleRace = useCallback(() => {
     soundEngine.init();
+    setIsGarageOpen(false);
     if (raceStatus === 'ready') {
       setRaceStatus('countdown');
     } else if (raceStatus === 'racing') {
@@ -226,6 +271,7 @@ export default function App() {
 
   const handleResetRace = useCallback(() => {
     soundEngine.init();
+    setIsGarageOpen(false);
     setResetSignal((prev) => prev + 1);
     setRaceStatus('countdown');
     setActiveModal(null);
@@ -319,19 +365,31 @@ export default function App() {
           Apex Horizon
         </a>
 
-        {/* Zone 2: 4 concise single-line text navigation links (including Combat Mode Toggle) */}
-        <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-300">
+        {/* Zone 2: Top Navigation Links (including Garage & Combat Mode Toggle) */}
+        <nav className="flex items-center gap-4 sm:gap-6 text-sm font-medium text-slate-300">
+          <button
+            type="button"
+            onClick={handleOpenGarage}
+            className={`flex items-center gap-1.5 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              isGarageOpen
+                ? 'text-amber-400 font-semibold'
+                : 'text-amber-300 hover:text-amber-200 font-semibold'
+            }`}
+          >
+            <Car className="w-4 h-4" />
+            <span>Garage</span>
+          </button>
           <button
             type="button"
             onClick={handleCycleTrack}
-            className="hover:text-white hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            className="hidden md:inline hover:text-white hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             Switch Circuit
           </button>
           <button
             type="button"
             onClick={() => setCombatMode((prev) => !prev)}
-            className={`hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+            className={`hidden sm:inline hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
               combatMode ? 'text-rose-400 font-semibold' : 'hover:text-white'
             }`}
           >
@@ -344,7 +402,7 @@ export default function App() {
                 prev === 'standings' ? null : 'standings'
               )
             }
-            className="hover:text-white hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            className="hidden md:inline hover:text-white hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             Live Standings
           </button>
@@ -355,7 +413,7 @@ export default function App() {
                 prev === 'controls' ? null : 'controls'
               )
             }
-            className="hover:text-white hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            className="hidden lg:inline hover:text-white hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             Driving Controls
           </button>
@@ -470,11 +528,13 @@ export default function App() {
                         }
                       >
                         {rv.driverName.split(' ')[0]}
+                        {rv.carName ? ` · ${rv.carName}` : ''}
                       </span>
                       <span className="text-slate-300">{rv.hp} HP</span>
                     </div>
                     <PixelHeartRow
                       hp={rv.hp}
+                      maxHp={rv.maxHp}
                       prevHp={rv.prevHeartHp ?? rv.hp}
                       isFlashing={rv.isHeartFlashing ?? false}
                       heartSize={7}
@@ -550,6 +610,7 @@ export default function App() {
                 <div className="flex items-center justify-between py-0.5">
                   <PixelHeartRow
                     hp={telemetry.playerHp}
+                    maxHp={telemetry.playerMaxHp}
                     prevHp={telemetry.playerPrevHeartHp ?? telemetry.playerHp}
                     isFlashing={telemetry.playerHeartFlashing ?? false}
                     heartSize={13}
@@ -844,14 +905,24 @@ export default function App() {
                   )}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={handleStartOrToggleRace}
-                className="px-5 py-2.5 text-sm font-semibold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-2"
-              >
-                <Play className="w-4 h-4 fill-current" />
-                <span>Launch Grid</span>
-              </button>
+              <div className="flex items-center gap-2.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleOpenGarage}
+                  className="px-4 py-2.5 text-sm font-semibold text-white bg-white/10 hover:bg-white/15 border border-white/15 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-2"
+                >
+                  <Car className="w-4 h-4 text-amber-400" />
+                  <span>Garage</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleStartOrToggleRace}
+                  className="px-5 py-2.5 text-sm font-semibold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-2"
+                >
+                  <Play className="w-4 h-4 fill-current" />
+                  <span>Launch Grid</span>
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -1353,27 +1424,47 @@ export default function App() {
 
               {/* Row 2: Livery Swatches, Combat Toggle, Track Environment, Camera View, and Audio Controls */}
               <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
-                {/* Livery Paint Swatches */}
+                {/* Livery Paint Swatches & Garage Button */}
                 <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-slate-400 whitespace-nowrap">
-                    Livery:
-                  </span>
-                  <div className="flex items-center gap-1.5">
-                    {CAR_LIVERIES.map((item) => {
-                      const active = item.id === livery.id;
+                  <button
+                    type="button"
+                    onClick={handleOpenGarage}
+                    className="px-2.5 py-1.5 rounded-lg bg-amber-400/15 hover:bg-amber-400/25 border border-amber-400/40 text-amber-300 font-semibold text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Car className="w-3.5 h-3.5" />
+                    <span>
+                      Garage (
+                      {CAR_CATALOG[livery.carModelId || 'stallion']?.name ||
+                        'Stallion'}
+                      )
+                    </span>
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {GARAGE_PAINT_COLORS.map((paint) => {
+                      const active =
+                        paint.primaryHex.toLowerCase() ===
+                        livery.primaryHex.toLowerCase();
                       return (
                         <button
-                          key={item.id}
+                          key={paint.id}
                           type="button"
-                          onClick={() => setLivery(item)}
-                          title={item.name}
-                          className={`w-6 h-6 rounded-md border transition-transform cursor-pointer ${
+                          onClick={() => {
+                            const nextSel: GarageSelectionState = {
+                              ...garageSelection,
+                              paintId: paint.id,
+                            };
+                            saveGarageSelection(nextSel);
+                            setGarageSelection(nextSel);
+                            setLivery(buildLiveryFromGarageSelection(nextSel));
+                          }}
+                          title={paint.name}
+                          className={`w-5 h-5 rounded-md border transition-transform cursor-pointer ${
                             active
                               ? 'border-white scale-110 ring-2 ring-amber-400/50'
                               : 'border-white/20 opacity-80 hover:opacity-100'
                           }`}
-                          style={{ backgroundColor: item.primaryHex }}
-                          aria-label={`Select ${item.name} livery`}
+                          style={{ backgroundColor: paint.primaryHex }}
+                          aria-label={`Select ${paint.name} paint`}
                         />
                       );
                     })}
@@ -1548,6 +1639,16 @@ export default function App() {
             </div>
           )}
         </div>
+
+        {/* 3D SHOWROOM GARAGE SCREEN (Disposes WebGL scene automatically when closed / race starts) */}
+        {isGarageOpen && (
+          <GarageModal
+            selection={garageSelection}
+            onChangeSelection={setGarageSelection}
+            onConfirmSelect={handleGarageSelect}
+            onBack={handleGarageClose}
+          />
+        )}
       </main>
     </div>
   );

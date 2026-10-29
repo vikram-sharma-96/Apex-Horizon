@@ -7,12 +7,17 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import {
   CameraMode,
+  CAR_CATALOG,
   CAR_LIVERIES,
+  CAR_MODEL_ORDER,
   CarLivery,
+  CarModelId,
   CombatDifficulty,
+  GARAGE_PAINT_COLORS,
   RaceStatus,
   RaceTelemetry,
   RivalCarState,
+  StripeStyleId,
   TRACK_CONFIGS,
   TrackTheme,
 } from '../types/racing';
@@ -22,6 +27,7 @@ import {
   buildCompositeHypercar,
   CompositeCarRig,
   createStudioEnvironmentTexture,
+  disposeCarRig,
   updateCarDamageAndHitFlash,
 } from '../three/carBuilder';
 import {
@@ -692,6 +698,155 @@ const AI_DRIVERS = [
   { id: 'ai-5', name: 'E. Vance', code: 'VAN', liveryIdx: 5, baseSpeed: 68.8 },
 ];
 
+/**
+ * Replaces a CompositeCarRig's 3D model in-place if carModelId changed, or updates its livery materials,
+ * while preserving `rig.root` and any attached particle / HUD children.
+ */
+function syncCarRigModelAndLivery(
+  targetRig: CompositeCarRig,
+  nextLivery: CarLivery,
+  shadowTexture: THREE.CanvasTexture,
+  isPlayer: boolean,
+  headlightsActive: boolean
+): void {
+  const desiredModel: CarModelId = nextLivery.carModelId || 'stallion';
+  if (targetRig.carModelId === desiredModel) {
+    applyLiveryToCarRig(targetRig, nextLivery);
+    targetRig.headlightCones.forEach((c) => {
+      c.visible = headlightsActive;
+    });
+    return;
+  }
+
+  // Remove old bodyTiltGroup and wheel pivots from targetRig.root while preserving particle/HUD groups
+  targetRig.root.remove(targetRig.bodyTiltGroup);
+  const toRemove: THREE.Object3D[] = [];
+  targetRig.root.children.forEach((child) => {
+    if (
+      child instanceof THREE.Group &&
+      child !== targetRig.bodyTiltGroup &&
+      child.children.some((c) => targetRig.wheelSpinMeshes.includes(c))
+    ) {
+      toRemove.push(child);
+    }
+  });
+  toRemove.forEach((c) => targetRig.root.remove(c));
+  disposeCarRig(targetRig);
+
+  const freshRig = buildCompositeHypercar(
+    nextLivery,
+    shadowTexture,
+    isPlayer,
+    nextLivery.primaryHex,
+    nextLivery.variant,
+    desiredModel
+  );
+
+  // Move fresh bodyTiltGroup and wheel pivot groups into existing targetRig.root
+  const freshChildren = [...freshRig.root.children];
+  freshChildren.forEach((child) => {
+    // Skip duplicate contact shadow mesh since targetRig.root already has one at index 0
+    if (child instanceof THREE.Mesh) return;
+    targetRig.root.add(child);
+  });
+
+  targetRig.carModelId = freshRig.carModelId;
+  targetRig.bodyTiltGroup = freshRig.bodyTiltGroup;
+  targetRig.paintMaterials = freshRig.paintMaterials;
+  targetRig.accentMaterials = freshRig.accentMaterials;
+  targetRig.rimMaterials = freshRig.rimMaterials;
+  targetRig.bodyTrimMaterial = freshRig.bodyTrimMaterial;
+  targetRig.basePaintColor = freshRig.basePaintColor;
+  targetRig.baseAccentColor = freshRig.baseAccentColor;
+  targetRig.baseTrimColor = freshRig.baseTrimColor;
+  targetRig.damageCrackGroup = freshRig.damageCrackGroup;
+  targetRig.damageCrackMaterial = freshRig.damageCrackMaterial;
+  targetRig.currentDamageStage = 0;
+  targetRig.brakeLightMaterial = freshRig.brakeLightMaterial;
+  targetRig.exhaustGlowMaterial = freshRig.exhaustGlowMaterial;
+  targetRig.frontWheelPivots = freshRig.frontWheelPivots;
+  targetRig.wheelSpinMeshes = freshRig.wheelSpinMeshes;
+  targetRig.nitroFlames = freshRig.nitroFlames;
+  targetRig.headlightCones = freshRig.headlightCones;
+  targetRig.variantGroups = freshRig.variantGroups;
+  targetRig.stripeGroups = freshRig.stripeGroups;
+
+  targetRig.headlightCones.forEach((c) => {
+    c.visible = headlightsActive;
+  });
+}
+
+/**
+ * Generates 5 distinct car models and 5 distinct paint colours for the AI rivals,
+ * randomly shuffled and guaranteed never to match the player's choice.
+ */
+function generateDistinctRivalSpecs(playerLivery: CarLivery): {
+  carModelId: CarModelId;
+  carName: string;
+  livery: CarLivery;
+}[] {
+  const playerModel = playerLivery.carModelId || 'stallion';
+  const playerHex = (playerLivery.primaryHex || '').toUpperCase();
+
+  // Shuffle all 5 car models so each of the 5 rivals drives a different model
+  const modelsPool = [...CAR_MODEL_ORDER];
+  for (let i = modelsPool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [modelsPool[i], modelsPool[j]] = [modelsPool[j], modelsPool[i]];
+  }
+
+  // Filter out the player's paint colour so no rival shares the player's paint colour
+  const availablePaints = GARAGE_PAINT_COLORS.filter(
+    (p) => p.primaryHex.toUpperCase() !== playerHex
+  );
+  const paintsPool =
+    availablePaints.length >= 5 ? [...availablePaints] : [...GARAGE_PAINT_COLORS];
+  for (let i = paintsPool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [paintsPool[i], paintsPool[j]] = [paintsPool[j], paintsPool[i]];
+  }
+
+  const stripeOptions: StripeStyleId[] = ['clean', 'twin', 'rally'];
+
+  return AI_DRIVERS.map((_, idx) => {
+    const carModelId = modelsPool[idx % modelsPool.length];
+    const spec = CAR_CATALOG[carModelId];
+    let paint = paintsPool[idx % paintsPool.length];
+    if (
+      carModelId === playerModel &&
+      paint.primaryHex.toUpperCase() === playerHex
+    ) {
+      paint = paintsPool[(idx + 1) % paintsPool.length];
+    }
+    const stripeStyle = stripeOptions[idx % stripeOptions.length];
+    const livery: CarLivery = {
+      id: `rival-${idx}-${carModelId}-${paint.id}`,
+      name: `${paint.name} ${spec.name}`,
+      code: paint.code,
+      primaryHex: paint.primaryHex,
+      secondaryHex: paint.secondaryHex,
+      accentHex: paint.accentHex,
+      rimHex: paint.rimHex,
+      metalness: paint.metalness,
+      roughness: paint.roughness,
+      clearcoat: 1.0,
+      variant:
+        carModelId === 'viper-rs'
+          ? 'race'
+          : carModelId === 'falcon-gt'
+            ? 'widebody'
+            : 'coupe',
+      carModelId,
+      stripeStyle,
+    };
+    return {
+      carModelId,
+      carName: spec.name,
+      livery,
+    };
+  });
+}
+
 export const RacingCanvas: React.FC<RacingCanvasProps> = ({
   trackTheme,
   livery,
@@ -760,12 +915,13 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
     rivalRigs: CompositeCarRig[];
     builtTrack: BuiltTrack | null;
     resetRaceState: () => void;
+    syncPlayerSelection: (nextLivery: CarLivery) => void;
   } | null>(null);
 
-  // Update player car livery immediately when user clicks swatch
+  // Update player car model & livery immediately when user changes car, paint or stripes
   useEffect(() => {
     if (sceneObjectsRef.current) {
-      applyLiveryToCarRig(sceneObjectsRef.current.playerRig, livery);
+      sceneObjectsRef.current.syncPlayerSelection(livery);
     }
   }, [livery]);
 
@@ -1031,17 +1187,29 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
       opacity: 0.85,
     });
 
+    const initialRivalSpecs = generateDistinctRivalSpecs(
+      propsRef.current.livery
+    );
+
     AI_DRIVERS.forEach((driver, index) => {
-      const rivalLivery = CAR_LIVERIES[driver.liveryIdx % CAR_LIVERIES.length];
-      const rig = buildCompositeHypercar(rivalLivery, shadowTexture, false);
+      const rSpecInfo = initialRivalSpecs[index];
+      const rCatalog = CAR_CATALOG[rSpecInfo.carModelId] || CAR_CATALOG.stallion;
+      const rig = buildCompositeHypercar(
+        rSpecInfo.livery,
+        shadowTexture,
+        false,
+        rSpecInfo.livery.primaryHex,
+        rSpecInfo.livery.variant,
+        rSpecInfo.carModelId
+      );
       rig.root.rotation.order = 'YXZ';
       rig.headlightCones.forEach((c) => {
         c.visible = initialConfig.headlightsActive;
       });
 
-      // Compact 3D Floating 10-Heart Pixel Health Bar above each AI car (100 HP max, 10 HP per heart)
+      // Compact 3D Floating 10-Heart Pixel Health Bar above each AI car
       const hbGroup = new THREE.Group();
-      hbGroup.position.set(0, 2.22, 0);
+      hbGroup.position.set(0, rCatalog.bodyHeight + 0.96, 0);
       const bgMesh = new THREE.Mesh(hpBgGeo, hpBgMat);
       bgMesh.position.set(0, -0.14, 0);
       bgMesh.renderOrder = 10;
@@ -1116,17 +1284,21 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
         id: driver.id,
         driverName: driver.name,
         teamCode: driver.code,
-        livery: rivalLivery,
+        carModelId: rSpecInfo.carModelId,
+        carName: rSpecInfo.carName,
+        livery: rSpecInfo.livery,
         trackDistance: startDist,
         lateralOffset: (index % 2 === 0 ? -1 : 1) * 3.8,
         targetLateral: (index % 2 === 0 ? -1 : 1) * 3.8,
         speed: 0,
-        baseMaxSpeed: driver.baseSpeed,
+        baseMaxSpeed: driver.baseSpeed * rCatalog.topSpeedMult,
+        accelMult: rCatalog.accelMult,
+        handlingMult: rCatalog.handlingMult,
         lap: 1,
         gapSeconds: 0,
-        hp: 100,
-        maxHp: 100,
-        prevHeartHp: 100,
+        hp: rCatalog.maxHp,
+        maxHp: rCatalog.maxHp,
+        prevHeartHp: rCatalog.maxHp,
         heartFlashTimer: 0,
         damageStage: 0,
         hitWobbleTimer: 0,
@@ -2508,8 +2680,13 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
       playerState.padBoostTimer = 0;
       playerState.raceTimeElapsed = 0;
 
-      playerState.hp = 100;
-      playerState.prevHeartHp = 100;
+      const playerCatalog =
+        CAR_CATALOG[propsRef.current.livery.carModelId || 'stallion'] ||
+        CAR_CATALOG.stallion;
+
+      playerState.maxHp = playerCatalog.maxHp;
+      playerState.hp = playerCatalog.maxHp;
+      playerState.prevHeartHp = playerCatalog.maxHp;
       playerState.heartFlashTimer = 0;
       playerState.damageStage = 0;
       playerState.hitWobbleTimer = 0;
@@ -2585,16 +2762,43 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
         collisionCooldowns[k] = 0;
       });
 
+      const freshRivalSpecs = generateDistinctRivalSpecs(
+        propsRef.current.livery
+      );
+
       rivalsState.forEach((rival, idx) => {
+        const rSpecInfo = freshRivalSpecs[idx];
+        const rCatalog =
+          CAR_CATALOG[rSpecInfo.carModelId] || CAR_CATALOG.stallion;
+
+        syncCarRigModelAndLivery(
+          rivalRigs[idx],
+          rSpecInfo.livery,
+          shadowTexture,
+          false,
+          playerState.headlightsActiveState
+        );
+        rivalHealthBarRigs[idx].group.position.set(
+          0,
+          rCatalog.bodyHeight + 0.96,
+          0
+        );
+
+        rival.carModelId = rSpecInfo.carModelId;
+        rival.carName = rSpecInfo.carName;
+        rival.livery = rSpecInfo.livery;
+        rival.baseMaxSpeed = AI_DRIVERS[idx].baseSpeed * rCatalog.topSpeedMult;
+        rival.accelMult = rCatalog.accelMult;
+        rival.handlingMult = rCatalog.handlingMult;
         rival.trackDistance = (idx + 1) * 11;
         rival.lateralOffset = idx % 2 === 0 ? 3.6 : -3.6;
         rival.targetLateral = rival.lateralOffset;
         rival.speed = 0;
         rival.lap = 1;
         rival.gapSeconds = 0;
-        rival.hp = 100;
-        rival.maxHp = 100;
-        rival.prevHeartHp = 100;
+        rival.maxHp = rCatalog.maxHp;
+        rival.hp = rCatalog.maxHp;
+        rival.prevHeartHp = rCatalog.maxHp;
         rival.heartFlashTimer = 0;
         rival.damageStage = 0;
         rival.hitWobbleTimer = 0;
@@ -2626,11 +2830,62 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
         .addScaledVector(_playerFrame.right, playerState.lateralOffset);
       _smoothedCamPos
         .copy(_carWorldPos)
-        .addScaledVector(_playerFrame.tangent, -9.5)
-        .addScaledVector(_playerFrame.up, 3.6);
+        .addScaledVector(_playerFrame.tangent, -playerCatalog.chaseCamDist)
+        .addScaledVector(_playerFrame.up, playerCatalog.chaseCamHeight);
       _smoothedLookAt
         .copy(_carWorldPos)
         .addScaledVector(_playerFrame.tangent, 12);
+    };
+
+    const syncPlayerSelection = (nextLivery: CarLivery) => {
+      const nextSpec =
+        CAR_CATALOG[nextLivery.carModelId || 'stallion'] || CAR_CATALOG.stallion;
+      const prevMax = Math.max(1, playerState.maxHp);
+      const hpFraction = THREE.MathUtils.clamp(playerState.hp / prevMax, 0.1, 1);
+
+      syncCarRigModelAndLivery(
+        playerRig,
+        nextLivery,
+        shadowTexture,
+        true,
+        playerState.headlightsActiveState
+      );
+
+      playerState.maxHp = nextSpec.maxHp;
+      playerState.hp = Math.round(nextSpec.maxHp * hpFraction);
+      playerState.prevHeartHp = playerState.hp;
+      updateCarDamageAndHitFlash(
+        playerRig,
+        playerState.hitFlashTimer,
+        playerState.hp / playerState.maxHp
+      );
+
+      // Ensure no AI rival has the identical car+paint combination as the player's new selection
+      const playerHex = (nextLivery.primaryHex || '').toUpperCase();
+      rivalsState.forEach((rv, idx) => {
+        if (rv.livery.primaryHex.toUpperCase() === playerHex) {
+          const altPaint =
+            GARAGE_PAINT_COLORS.find(
+              (p) =>
+                p.primaryHex.toUpperCase() !== playerHex &&
+                !rivalsState.some(
+                  (other) =>
+                    other.livery.primaryHex.toUpperCase() ===
+                    p.primaryHex.toUpperCase()
+                )
+            ) || GARAGE_PAINT_COLORS[(idx + 1) % GARAGE_PAINT_COLORS.length];
+          rv.livery = {
+            ...rv.livery,
+            name: `${altPaint.name} ${rv.carName}`,
+            code: altPaint.code,
+            primaryHex: altPaint.primaryHex,
+            secondaryHex: altPaint.secondaryHex,
+            accentHex: altPaint.accentHex,
+            rimHex: altPaint.rimHex,
+          };
+          applyLiveryToCarRig(rivalRigs[idx], rv.livery);
+        }
+      });
     };
 
     resetRaceState();
@@ -2645,6 +2900,7 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
       rivalRigs,
       builtTrack,
       resetRaceState,
+      syncPlayerSelection,
     };
 
     // Pre-compile shaders once after setup
@@ -3013,13 +3269,18 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
         }
       }
 
+      const playerSpec =
+        CAR_CATALOG[propsRef.current.livery.carModelId || 'stallion'] ||
+        CAR_CATALOG.stallion;
+
       //Handle Player Respawn (3s) & Blinking Invulnerability
       if (playerState.isDestroyed && currentStatus === 'racing') {
         playerState.respawnTimer -= dt;
         if (playerState.respawnTimer <= 0) {
           playerState.isDestroyed = false;
-          playerState.hp = 100;
-          playerState.prevHeartHp = 100;
+          playerState.maxHp = playerSpec.maxHp;
+          playerState.hp = playerSpec.maxHp;
+          playerState.prevHeartHp = playerSpec.maxHp;
           playerState.heartFlashTimer = 0;
           playerState.damageStage = 0;
           playerState.hitWobbleTimer = 0;
@@ -3207,7 +3468,7 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
         playerState.cornerClean = false;
       }
 
-      const baseTopSpeed = 77.5; // ~279 km/h
+      const baseTopSpeed = 77.5 * playerSpec.topSpeedMult; // ~279 km/h scaled by car topSpeedMult
       let isTyreScrubbing = false;
       let isSliding = false;
 
@@ -3215,13 +3476,15 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
       if (currentStatus !== 'paused') {
         const boostBonus = isBoosting ? 16.5 : 0; // up to ~338 km/h
         const slipBonus = isSlipstreaming ? 5.5 : 0;
-        const offTrackPenalty = isOffTrack ? 26.0 : 0;
+        const offTrackPenalty = isOffTrack
+          ? 26.0 * playerSpec.gravelPenaltyMult
+          : 0;
         const maxSpeed =
           baseTopSpeed + boostBonus + slipBonus - offTrackPenalty;
 
         if (canDrive) {
           if (throttleInput > 0) {
-            const accel = isBoosting ? 36.0 : 22.5;
+            const accel = (isBoosting ? 36.0 : 22.5) * playerSpec.accelMult;
             playerState.speed = THREE.MathUtils.damp(
               playerState.speed,
               maxSpeed,
@@ -3243,7 +3506,7 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
             playerState.speed = THREE.MathUtils.damp(
               playerState.speed,
               0,
-              isOffTrack ? 2.4 : 0.65,
+              isOffTrack ? 2.4 * playerSpec.gravelPenaltyMult : 0.65,
               dt
             );
           }
@@ -3261,7 +3524,7 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
         playerState.steerAngle = THREE.MathUtils.damp(
           playerState.steerAngle,
           rawSteer,
-          10.5,
+          10.5 * playerSpec.handlingMult,
           dt
         );
 
@@ -3269,7 +3532,7 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
           1,
           Math.abs(playerState.speed) / 18
         );
-        const turnRate = 15.5 * speedFactor;
+        const turnRate = 15.5 * playerSpec.handlingMult * speedFactor;
 
         const centrifugalPush =
           _playerFrame.curvature *
@@ -3282,7 +3545,7 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
         playerState.lateralVelocity = THREE.MathUtils.damp(
           playerState.lateralVelocity,
           targetLatVel,
-          7.5,
+          7.5 * playerSpec.handlingMult,
           dt
         );
         playerState.lateralOffset += playerState.lateralVelocity * dt;
@@ -3297,7 +3560,7 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
             Math.pow(absSteer, 1.85) *
             THREE.MathUtils.clamp((speedNorm - 0.42) / 0.58, 0, 1) *
             cornerSeverity;
-          const scrubDecel = scrubFactor * 14.5;
+          const scrubDecel = (scrubFactor * 14.5) / playerSpec.handlingMult;
           playerState.speed = Math.max(12, playerState.speed - scrubDecel * dt);
           if (scrubFactor > 0.22) {
             isTyreScrubbing = true;
@@ -3615,7 +3878,8 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
           dt
         );
       });
-      const wheelSpinDelta = (playerState.speed * dt) / 0.35;
+      const wheelSpinDelta =
+        (playerState.speed * dt) / Math.max(0.2, playerSpec.wheelRadius);
       playerRig.wheelSpinMeshes.forEach((w) => {
         w.rotation.x -= wheelSpinDelta;
       });
@@ -3748,15 +4012,14 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
         rival.knockbackX = THREE.MathUtils.damp(rival.knockbackX, 0, 14.0, dt);
         rival.knockbackZ = THREE.MathUtils.damp(rival.knockbackZ, 0, 14.0, dt);
 
-        // Handle Eliminated Rival Respawn after 5s at back of the pack with 50 HP (disabled if Permanent Elimination is ON)
+        // Handle Eliminated Rival Respawn after 5s at back of the pack with 50% HP (disabled if Permanent Elimination is ON)
         if (rival.isEliminated) {
           if (currentStatus === 'racing' && !isPermanentElimination) {
             rival.respawnTimer -= dt;
             if (rival.respawnTimer <= 0) {
               rival.isEliminated = false;
-              rival.hp = 50; // Respawn with 50 HP
-              rival.maxHp = 100;
-              rival.prevHeartHp = 50;
+              rival.hp = Math.round(rival.maxHp * 0.5); // Respawn with 50% armor
+              rival.prevHeartHp = rival.hp;
               rival.heartFlashTimer = 0;
               rival.damageStage = 2;
               rival.hitWobbleTimer = 0;
@@ -3787,7 +4050,8 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
             rival.hitSlowTimer = Math.max(0, rival.hitSlowTimer - dt);
           }
 
-          const cornerSlowdown = Math.abs(_rivalFrame.curvature) * 65;
+          const cornerSlowdown =
+            (Math.abs(_rivalFrame.curvature) * 65) / rival.handlingMult;
           const distGap = playerState.trackDistance - rival.trackDistance;
           const rubberBand = THREE.MathUtils.clamp(distGap * 0.08, -5.5, 7.5);
           const hitSlowFactor = rival.hitSlowTimer > 0 ? 0.72 : 1.0; // Brief 0.5s slowdown when hit
@@ -3797,7 +4061,7 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
           rival.speed = THREE.MathUtils.damp(
             rival.speed,
             desiredSpeed,
-            rival.hitSlowTimer > 0 ? 6.5 : 2.2,
+            (rival.hitSlowTimer > 0 ? 6.5 : 2.2) * rival.accelMult,
             dt
           );
           rival.trackDistance += rival.speed * dt;
@@ -4060,7 +4324,9 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
         rig.bodyTiltGroup.position.x = rival.knockbackX;
         rig.bodyTiltGroup.position.z = rival.knockbackZ;
 
-        const rSpin = (rival.speed * dt) / 0.35;
+        const rivalWheelRadius =
+          CAR_CATALOG[rival.carModelId]?.wheelRadius ?? 0.35;
+        const rSpin = (rival.speed * dt) / Math.max(0.2, rivalWheelRadius);
         rig.wheelSpinMeshes.forEach((w) => {
           w.rotation.x -= rSpin;
         });
@@ -4196,8 +4462,12 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
         hb.fillMat.color.setHex(
           hpRatio > 0.5 ? 0x10b981 : hpRatio > 0.3 ? 0xf59e0b : 0xef4444
         );
-        const roundedHp = Math.round(rival.hp);
-        const roundedPrevHp = Math.round(rival.prevHeartHp);
+        const roundedHp = Math.round(
+          (rival.hp / Math.max(1, rival.maxHp)) * 100
+        );
+        const roundedPrevHp = Math.round(
+          (rival.prevHeartHp / Math.max(1, rival.maxHp)) * 100
+        );
         const isFlashingHeart = rival.heartFlashTimer > 0;
         if (
           hb.lastRenderedHp !== roundedHp ||
@@ -4228,7 +4498,10 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
           playerState.mgFireTimer <= 0
         ) {
           playerState.mgFireTimer = 0.085; // ~11.7 rounds/sec
-          playerState.mgHeat = Math.min(100, playerState.mgHeat + 7.5);
+          playerState.mgHeat = Math.min(
+            100,
+            playerState.mgHeat + 7.5 / playerSpec.weaponHeatCapacityMult
+          );
           if (playerState.mgHeat >= 100) {
             playerState.mgOverheated = true;
             triggerScoreEvent('WEAPON OVERHEATED');
@@ -4942,8 +5215,8 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
       if (currentCamMode === 'hood') {
         _desiredCamPos
           .copy(_carWorldPos)
-          .addScaledVector(_playerFrame.up, 1.18)
-          .addScaledVector(_carForward, 0.35);
+          .addScaledVector(_playerFrame.up, playerSpec.hoodCamHeight)
+          .addScaledVector(_carForward, playerSpec.hoodCamForward);
         _desiredLookAt
           .copy(_carWorldPos)
           .addScaledVector(_carForward, 28)
@@ -4973,8 +5246,8 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
 
         _desiredCamPos
           .copy(_carWorldPos)
-          .addScaledVector(_camForward, -7.2)
-          .addScaledVector(_playerFrame.up, 2.55)
+          .addScaledVector(_camForward, -playerSpec.chaseCamDist)
+          .addScaledVector(_playerFrame.up, playerSpec.chaseCamHeight)
           .addScaledVector(_camRight, turnSideOffset);
         _desiredLookAt
           .copy(_carWorldPos)
@@ -5113,6 +5386,7 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
             return {
               id: rv.id,
               driverName: rv.driverName,
+              carName: rv.carName,
               hp: rv.hp,
               maxHp: rv.maxHp,
               prevHeartHp: rv.prevHeartHp,
@@ -5136,6 +5410,7 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
           return {
             id: rv.id,
             driverName: rv.driverName,
+            carName: rv.carName,
             hp: Math.round(rv.hp),
             maxHp: rv.maxHp,
             prevHeartHp: Math.round(rv.prevHeartHp),
@@ -5155,7 +5430,8 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
         const allStandings = [
           {
             id: 'player',
-            driverName: 'You (Apex Horizon)',
+            driverName: `You (${playerSpec.name})`,
+            carName: playerSpec.name,
             teamCode: propsRef.current.livery.code,
             isPlayer: true,
             distance: playerState.trackDistance,
@@ -5164,7 +5440,8 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
           },
           ...rivalsState.map((r) => ({
             id: r.id,
-            driverName: r.driverName,
+            driverName: `${r.driverName} (${r.carName})`,
+            carName: r.carName,
             teamCode: r.teamCode,
             isPlayer: false,
             distance: r.trackDistance,
@@ -5238,6 +5515,7 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
           standings: allStandings.map((item, idx) => ({
             id: item.id,
             driverName: item.driverName,
+            carName: item.carName,
             teamCode: item.teamCode,
             isPlayer: item.isPlayer,
             position: idx + 1,
@@ -5274,6 +5552,8 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
         handleContextRestored
       );
       sceneObjectsRef.current?.builtTrack?.dispose();
+      disposeCarRig(playerRig);
+      rivalRigs.forEach((r) => disposeCarRig(r));
       shadowTexture.dispose();
       softParticleSpriteTex.dispose();
       particleGeo.dispose();
