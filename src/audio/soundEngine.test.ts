@@ -105,4 +105,41 @@ describe('RacingSoundEngine', () => {
         expect(() => soundEngine.playDamageStageBreak(2)).not.toThrow();
         expect(() => soundEngine.playPickup('repair')).not.toThrow();
     });
+
+    describe('playMissileLaunch', () => {
+        it('calls correct AudioContext methods when not muted', () => {
+            soundEngine.init();
+
+            // clear initialisation calls
+            mockAudioContext.createBufferSource.mockClear();
+            mockAudioContext.createBiquadFilter.mockClear();
+            mockAudioContext.createGain.mockClear();
+            mockAudioContext.createOscillator.mockClear();
+
+            soundEngine.playMissileLaunch();
+
+            expect(mockAudioContext.createBufferSource).toHaveBeenCalled();
+            expect(mockAudioContext.createBiquadFilter).toHaveBeenCalled();
+            expect(mockAudioContext.createGain).toHaveBeenCalled();
+            expect(mockAudioContext.createOscillator).toHaveBeenCalled();
+        });
+
+        it('returns early when muted', () => {
+            soundEngine.init();
+            soundEngine.setMuted(true);
+
+            // clear initialisation calls
+            mockAudioContext.createBufferSource.mockClear();
+            mockAudioContext.createBiquadFilter.mockClear();
+            mockAudioContext.createGain.mockClear();
+            mockAudioContext.createOscillator.mockClear();
+
+            soundEngine.playMissileLaunch();
+
+            expect(mockAudioContext.createBufferSource).not.toHaveBeenCalled();
+            expect(mockAudioContext.createBiquadFilter).not.toHaveBeenCalled();
+            expect(mockAudioContext.createGain).not.toHaveBeenCalled();
+            expect(mockAudioContext.createOscillator).not.toHaveBeenCalled();
+        });
+    });
 });
