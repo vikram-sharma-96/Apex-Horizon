@@ -5434,9 +5434,11 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
             carName: playerSpec.name,
             teamCode: propsRef.current.livery.code,
             isPlayer: true,
-            distance: playerState.trackDistance,
+            trackDistance: playerState.trackDistance,
             lateralOffset: playerState.lateralOffset,
             colorHex: propsRef.current.livery.primaryHex,
+            position: 0,
+            gapSeconds: 0,
           },
           ...rivalsState.map((r) => ({
             id: r.id,
@@ -5444,14 +5446,25 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
             carName: r.carName,
             teamCode: r.teamCode,
             isPlayer: false,
-            distance: r.trackDistance,
+            trackDistance: r.trackDistance,
             lateralOffset: r.lateralOffset,
             colorHex: r.livery.primaryHex,
+            position: 0,
+            gapSeconds: 0,
           })),
-        ].sort((a, b) => b.distance - a.distance);
+        ].sort((a, b) => b.trackDistance - a.trackDistance);
 
-        const leaderDist = allStandings[0].distance;
-        const playerPosIndex = allStandings.findIndex((s) => s.isPlayer);
+        const leaderDist = allStandings[0].trackDistance;
+        let playerPosIndex = 0;
+
+        for (let i = 0; i < allStandings.length; i++) {
+          const item = allStandings[i];
+          item.position = i + 1;
+          item.gapSeconds = i === 0 ? 0 : Number(((leaderDist - item.trackDistance) / 68).toFixed(2));
+          if (item.isPlayer) {
+            playerPosIndex = i;
+          }
+        }
 
         const normTrackDist =
           ((playerState.trackDistance % TRACK_LENGTH) + TRACK_LENGTH) %
@@ -5512,23 +5525,7 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
           killFeed: playerState.killFeed,
           crosshairScreen,
           rivalOverlays,
-          standings: allStandings.map((item, idx) => ({
-            id: item.id,
-            driverName: item.driverName,
-            carName: item.carName,
-            teamCode: item.teamCode,
-            isPlayer: item.isPlayer,
-            position: idx + 1,
-            gapSeconds:
-              idx === 0
-                ? 0
-                : Number(
-                    ((leaderDist - item.distance) / 68).toFixed(2)
-                  ),
-            colorHex: item.colorHex,
-            trackDistance: item.distance,
-            lateralOffset: item.lateralOffset,
-          })),
+          standings: allStandings,
         });
       }
     };
