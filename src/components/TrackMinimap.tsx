@@ -34,6 +34,91 @@ interface MapProjection {
   ) => { x: number; y: number; angleDeg: number };
 }
 
+// ⚡ Bolt Optimization: Extracted static SVG layers (track layout, borders, boost pads)
+// into a separate memoized component. This prevents expensive DOM reconciliation of
+// complex SVG paths at 20Hz during rapid telemetry updates.
+const StaticMapLayers = React.memo(({ mapProjection, activeSector, trackConfig }: { mapProjection: MapProjection, activeSector: number, trackConfig: typeof TRACK_CONFIGS[keyof typeof TRACK_CONFIGS] }) => {
+  const sf = mapProjection.startFinish;
+  return (
+    <>
+      {/* Outer Track Border Shadow */}
+      <path
+        d={mapProjection.fullPath}
+        fill="none"
+        stroke="#020617"
+        strokeWidth="10"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+
+      {/* Base Circuit Asphalt Track */}
+      <path
+        d={mapProjection.fullPath}
+        fill="none"
+        stroke="#334155"
+        strokeWidth="6.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+
+      {/* Active Sector Highlight */}
+      <path
+        d={mapProjection.sectorPaths[activeSector]}
+        fill="none"
+        stroke={trackConfig.curbPrimaryHex}
+        strokeWidth="3.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeOpacity="0.85"
+      />
+
+      {/* Center Racing Line */}
+      <path
+        d={mapProjection.fullPath}
+        fill="none"
+        stroke="#94A3B8"
+        strokeWidth="1"
+        strokeDasharray="3 3"
+        strokeOpacity="0.45"
+      />
+
+      {/* Nitro Boost Pad Ticks */}
+      {mapProjection.boostPadPoints.map((bp, idx) => (
+        <circle
+          key={idx}
+          cx={bp.x}
+          cy={bp.y}
+          r="2.1"
+          fill="#06B6D4"
+          opacity="0.85"
+        />
+      ))}
+
+      {/* Sector Split Labels (S1, S2, S3) */}
+      {mapProjection.sectorBoundaries.map((sb, idx) => (
+        <g key={sb.label}>
+          <circle
+            cx={sb.x}
+            cy={sb.y}
+            r="2.5"
+            fill={idx === activeSector ? '#F59E0B' : '#64748B'}
+          />
+        </g>
+      ))}
+
+      {/* Start / Finish Line Bar */}
+      <line
+        x1={sf.x - sf.nx * 6.5}
+        y1={sf.y - sf.ny * 6.5}
+        x2={sf.x + sf.nx * 6.5}
+        y2={sf.y + sf.ny * 6.5}
+        stroke="#F8FAFC"
+        strokeWidth="2.6"
+      />
+    </>
+  );
+});
+
 export const TrackMinimap: React.FC<TrackMinimapProps> = ({
   telemetry,
   trackTheme,
@@ -194,79 +279,10 @@ export const TrackMinimap: React.FC<TrackMinimapProps> = ({
           viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}
           className="w-full h-auto overflow-visible"
         >
-          {/* Outer Track Border Shadow */}
-          <path
-            d={mapProjection.fullPath}
-            fill="none"
-            stroke="#020617"
-            strokeWidth="10"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-
-          {/* Base Circuit Asphalt Track */}
-          <path
-            d={mapProjection.fullPath}
-            fill="none"
-            stroke="#334155"
-            strokeWidth="6.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-
-          {/* Active Sector Highlight */}
-          <path
-            d={mapProjection.sectorPaths[activeSector]}
-            fill="none"
-            stroke={trackConfig.curbPrimaryHex}
-            strokeWidth="3.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeOpacity="0.85"
-          />
-
-          {/* Center Racing Line */}
-          <path
-            d={mapProjection.fullPath}
-            fill="none"
-            stroke="#94A3B8"
-            strokeWidth="1"
-            strokeDasharray="3 3"
-            strokeOpacity="0.45"
-          />
-
-          {/* Nitro Boost Pad Ticks */}
-          {mapProjection.boostPadPoints.map((bp, idx) => (
-            <circle
-              key={idx}
-              cx={bp.x}
-              cy={bp.y}
-              r="2.1"
-              fill="#06B6D4"
-              opacity="0.85"
-            />
-          ))}
-
-          {/* Sector Split Labels (S1, S2, S3) */}
-          {mapProjection.sectorBoundaries.map((sb, idx) => (
-            <g key={sb.label}>
-              <circle
-                cx={sb.x}
-                cy={sb.y}
-                r="2.5"
-                fill={idx === activeSector ? '#F59E0B' : '#64748B'}
-              />
-            </g>
-          ))}
-
-          {/* Start / Finish Line Bar */}
-          <line
-            x1={sf.x - sf.nx * 6.5}
-            y1={sf.y - sf.ny * 6.5}
-            x2={sf.x + sf.nx * 6.5}
-            y2={sf.y + sf.ny * 6.5}
-            stroke="#F8FAFC"
-            strokeWidth="2.6"
+          <StaticMapLayers
+            mapProjection={mapProjection}
+            activeSector={activeSector}
+            trackConfig={trackConfig}
           />
 
           {/* AI Rival Car Markers */}
