@@ -102,15 +102,7 @@ const INITIAL_TELEMETRY: RaceTelemetry = {
 };
 
 // Minecraft-style 10-Heart Pixel Art Row (10 HP = 1 full heart, 5 HP = half-heart, grey when damaged, white flash when lost)
-const PIXEL_HEART_SVG_ROWS = [
-  '01100110',
-  '12211221',
-  '13222221',
-  '12222221',
-  '01222210',
-  '00122100',
-  '00011000',
-];
+// Array removed to improve performance
 
 const PixelHeartIcon = React.memo(function PixelHeartIcon({
   state,
@@ -128,30 +120,25 @@ const PixelHeartIcon = React.memo(function PixelHeartIcon({
       className="shrink-0"
       aria-hidden="true"
     >
-      {PIXEL_HEART_SVG_ROWS.map((row, py) =>
-        row.split('').map((ch, px) => {
-          if (ch === '0') return null;
-          let fill = '#090b10';
-          if (ch === '1') {
-            fill = state === 'flash' ? '#ffffff' : '#090b10';
-          } else if (state === 'flash') {
-            fill = '#ffffff';
-          } else if (state === 'full') {
-            fill = ch === '3' ? '#fecdd3' : '#ef4444';
-          } else if (state === 'half') {
-            if (px < 4) {
-              fill = ch === '3' ? '#fecdd3' : '#ef4444';
-            } else {
-              fill = '#334155';
-            }
-          } else {
-            fill = ch === '3' ? '#475569' : '#334155';
-          }
-          return (
-            <rect key={`${px}-${py}`} x={px} y={py} width={1} height={1} fill={fill} />
-          );
-        })
-      )}
+      {state === 'full' && (<>
+        <path fill="#090b10" d="M1 0h1v1h-1zM2 0h1v1h-1zM5 0h1v1h-1zM6 0h1v1h-1zM0 1h1v1h-1zM3 1h1v1h-1zM4 1h1v1h-1zM7 1h1v1h-1zM0 2h1v1h-1zM7 2h1v1h-1zM0 3h1v1h-1zM7 3h1v1h-1zM1 4h1v1h-1zM6 4h1v1h-1zM2 5h1v1h-1zM5 5h1v1h-1zM3 6h1v1h-1zM4 6h1v1h-1z" />
+        <path fill="#ef4444" d="M1 1h1v1h-1zM2 1h1v1h-1zM5 1h1v1h-1zM6 1h1v1h-1zM2 2h1v1h-1zM3 2h1v1h-1zM4 2h1v1h-1zM5 2h1v1h-1zM6 2h1v1h-1zM1 3h1v1h-1zM2 3h1v1h-1zM3 3h1v1h-1zM4 3h1v1h-1zM5 3h1v1h-1zM6 3h1v1h-1zM2 4h1v1h-1zM3 4h1v1h-1zM4 4h1v1h-1zM5 4h1v1h-1zM3 5h1v1h-1zM4 5h1v1h-1z" />
+        <path fill="#fecdd3" d="M1 2h1v1h-1z" />
+      </>)}
+      {state === 'half' && (<>
+        <path fill="#090b10" d="M1 0h1v1h-1zM2 0h1v1h-1zM5 0h1v1h-1zM6 0h1v1h-1zM0 1h1v1h-1zM3 1h1v1h-1zM4 1h1v1h-1zM7 1h1v1h-1zM0 2h1v1h-1zM7 2h1v1h-1zM0 3h1v1h-1zM7 3h1v1h-1zM1 4h1v1h-1zM6 4h1v1h-1zM2 5h1v1h-1zM5 5h1v1h-1zM3 6h1v1h-1zM4 6h1v1h-1z" />
+        <path fill="#ef4444" d="M1 1h1v1h-1zM2 1h1v1h-1zM2 2h1v1h-1zM3 2h1v1h-1zM1 3h1v1h-1zM2 3h1v1h-1zM3 3h1v1h-1zM2 4h1v1h-1zM3 4h1v1h-1zM3 5h1v1h-1z" />
+        <path fill="#334155" d="M5 1h1v1h-1zM6 1h1v1h-1zM4 2h1v1h-1zM5 2h1v1h-1zM6 2h1v1h-1zM4 3h1v1h-1zM5 3h1v1h-1zM6 3h1v1h-1zM4 4h1v1h-1zM5 4h1v1h-1zM4 5h1v1h-1z" />
+        <path fill="#fecdd3" d="M1 2h1v1h-1z" />
+      </>)}
+      {state === 'empty' && (<>
+        <path fill="#090b10" d="M1 0h1v1h-1zM2 0h1v1h-1zM5 0h1v1h-1zM6 0h1v1h-1zM0 1h1v1h-1zM3 1h1v1h-1zM4 1h1v1h-1zM7 1h1v1h-1zM0 2h1v1h-1zM7 2h1v1h-1zM0 3h1v1h-1zM7 3h1v1h-1zM1 4h1v1h-1zM6 4h1v1h-1zM2 5h1v1h-1zM5 5h1v1h-1zM3 6h1v1h-1zM4 6h1v1h-1z" />
+        <path fill="#334155" d="M1 1h1v1h-1zM2 1h1v1h-1zM5 1h1v1h-1zM6 1h1v1h-1zM2 2h1v1h-1zM3 2h1v1h-1zM4 2h1v1h-1zM5 2h1v1h-1zM6 2h1v1h-1zM1 3h1v1h-1zM2 3h1v1h-1zM3 3h1v1h-1zM4 3h1v1h-1zM5 3h1v1h-1zM6 3h1v1h-1zM2 4h1v1h-1zM3 4h1v1h-1zM4 4h1v1h-1zM5 4h1v1h-1zM3 5h1v1h-1zM4 5h1v1h-1z" />
+        <path fill="#475569" d="M1 2h1v1h-1z" />
+      </>)}
+      {state === 'flash' && (<>
+        <path fill="#ffffff" d="M1 0h1v1h-1zM2 0h1v1h-1zM5 0h1v1h-1zM6 0h1v1h-1zM0 1h1v1h-1zM1 1h1v1h-1zM2 1h1v1h-1zM3 1h1v1h-1zM4 1h1v1h-1zM5 1h1v1h-1zM6 1h1v1h-1zM7 1h1v1h-1zM0 2h1v1h-1zM1 2h1v1h-1zM2 2h1v1h-1zM3 2h1v1h-1zM4 2h1v1h-1zM5 2h1v1h-1zM6 2h1v1h-1zM7 2h1v1h-1zM0 3h1v1h-1zM1 3h1v1h-1zM2 3h1v1h-1zM3 3h1v1h-1zM4 3h1v1h-1zM5 3h1v1h-1zM6 3h1v1h-1zM7 3h1v1h-1zM1 4h1v1h-1zM2 4h1v1h-1zM3 4h1v1h-1zM4 4h1v1h-1zM5 4h1v1h-1zM6 4h1v1h-1zM2 5h1v1h-1zM3 5h1v1h-1zM4 5h1v1h-1zM5 5h1v1h-1zM3 6h1v1h-1zM4 6h1v1h-1z" />
+      </>)}
     </svg>
   );
 });
