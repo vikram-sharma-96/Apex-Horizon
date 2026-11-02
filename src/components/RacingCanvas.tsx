@@ -847,20 +847,8 @@ function generateDistinctRivalSpecs(playerLivery: CarLivery): {
   });
 }
 
-export const RacingCanvas: React.FC<RacingCanvasProps> = ({
-  trackTheme,
-  livery,
-  cameraMode,
-  raceStatus,
-  combatMode,
-  combatDifficulty,
-  permanentElimination,
-  totalLaps,
-  resetSignal,
-  touchControlsRef,
-  onTelemetryUpdate,
-  onStatusChange,
-}) => {
+export const RacingCanvas = React.memo(function RacingCanvas(props: RacingCanvasProps) {
+  const { trackTheme, livery, cameraMode, raceStatus, combatMode, combatDifficulty, permanentElimination, totalLaps, resetSignal, touchControlsRef, onTelemetryUpdate, onStatusChange } = props;
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const [contextLost, setContextLost] = useState(false);
 
@@ -5640,4 +5628,4 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
       )}
     </div>
   );
-};
+});
