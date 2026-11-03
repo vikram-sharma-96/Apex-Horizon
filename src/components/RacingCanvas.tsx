@@ -847,7 +847,11 @@ function generateDistinctRivalSpecs(playerLivery: CarLivery): {
   });
 }
 
-export const RacingCanvas: React.FC<RacingCanvasProps> = ({
+// ⚡ Bolt Optimization: Memoize the heavy RacingCanvas component.
+// App.tsx holds telemetry state which updates at 20Hz. Without memoization,
+// this causes React to re-evaluate this complex 5000+ line component 20 times a second
+// even though its props (trackTheme, livery, etc.) are stable.
+export const RacingCanvas = React.memo(({
   trackTheme,
   livery,
   cameraMode,
@@ -860,7 +864,7 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
   touchControlsRef,
   onTelemetryUpdate,
   onStatusChange,
-}) => {
+}: RacingCanvasProps) => {
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const [contextLost, setContextLost] = useState(false);
 
@@ -5640,4 +5644,4 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
       )}
     </div>
   );
-};
+});
