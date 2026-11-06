@@ -847,7 +847,10 @@ function generateDistinctRivalSpecs(playerLivery: CarLivery): {
   });
 }
 
-export const RacingCanvas: React.FC<RacingCanvasProps> = ({
+// ⚡ Bolt Optimization: Wrapped RacingCanvas in React.memo
+// Why: Prevents expensive Three.js component tree from needlessly re-rendering
+// when the parent App.tsx updates at ~20Hz from HUD telemetry state changes.
+export const RacingCanvas = React.memo(({
   trackTheme,
   livery,
   cameraMode,
@@ -860,7 +863,7 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
   touchControlsRef,
   onTelemetryUpdate,
   onStatusChange,
-}) => {
+}: RacingCanvasProps) => {
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const [contextLost, setContextLost] = useState(false);
 
@@ -5640,4 +5643,4 @@ export const RacingCanvas: React.FC<RacingCanvasProps> = ({
       )}
     </div>
   );
-};
+});
