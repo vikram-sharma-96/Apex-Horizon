@@ -5,3 +5,6 @@
 ## 2025-03-04 - RacingCanvas Re-renders on 20Hz Telemetry
 **Learning:** The massive Three.js `RacingCanvas` component receives a `onTelemetryUpdate` prop which drives the HUD state in `App.tsx`. Because `App.tsx` re-renders at 20Hz, it forces React to diff the entire component tree of `RacingCanvas` (which is highly expensive) even though its props remain structurally the same.
 **Action:** Always verify if complex 3D WebGL components or canvas wrappers are memoized when their parents contain frequently updating state (like telemetry or animations) to avoid expensive main-thread reconciliations.
+## 2025-03-05 - React Re-render Bottleneck in GarageModal
+**Learning:** Found a performance bottleneck where a React component (`App`) re-renders every 50ms due to telemetry updates. Inside `App`, there is a `GarageModal` component which is a very heavy 3D showroom utilizing Three.js and complex customizer UI elements. Without memoization, React reconciles this huge component tree at 20Hz, causing severe unnecessary CPU load when the modal is open in the background (or even when just mounted).
+**Action:** Use `React.memo()` on purely presentational or layout-heavy components (like `GarageModal`) when they are rendered inside a parent (`App.tsx`) that has highly frequent state updates (like telemetry). This prevents wasteful reconciliations.
