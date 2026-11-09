@@ -27,7 +27,10 @@ interface GarageModalProps {
   onBack: () => void;
 }
 
-export const GarageModal: React.FC<GarageModalProps> = ({
+// ⚡ Bolt Optimization: Wrapped GarageModal in React.memo
+// Why: Prevents expensive 3D showroom and customizer UI from needlessly re-rendering
+// at 20Hz when background telemetry updates from RacingCanvas trigger App.tsx renders.
+export const GarageModal: React.FC<GarageModalProps> = React.memo(({
   selection,
   onChangeSelection,
   onConfirmSelect,
@@ -727,4 +730,4 @@ export const GarageModal: React.FC<GarageModalProps> = ({
       </div>
     </div>
   );
-};
+});
