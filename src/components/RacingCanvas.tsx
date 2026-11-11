@@ -236,6 +236,39 @@ function createFireworkParticleMaterial(
   });
 }
 
+// ⚡ Bolt Optimization: Extracted AI difficulty configurations to module scope.
+// Why: Prevents object allocation inside the 60fps animate loop, avoiding GC thrashing
+// and conforming to the zero-GC optimization pattern used throughout the file.
+const AI_DIFFICULTY_CONFIGS: Record<CombatDifficulty, {
+  burstInterval: number;
+  burstCount: number;
+  reloadDelay: number;
+  spreadRad: number;
+  maxRange: number;
+}> = {
+  easy: {
+    burstInterval: 0.24,
+    burstCount: 3,
+    reloadDelay: 4.2,
+    spreadRad: THREE.MathUtils.degToRad(9.5),
+    maxRange: 46,
+  },
+  hard: {
+    burstInterval: 0.11,
+    burstCount: 6,
+    reloadDelay: 1.75,
+    spreadRad: THREE.MathUtils.degToRad(2.6),
+    maxRange: 78,
+  },
+  normal: {
+    burstInterval: 0.16,
+    burstCount: 4,
+    reloadDelay: 2.8,
+    spreadRad: THREE.MathUtils.degToRad(5.5),
+    maxRange: 62,
+  },
+};
+
 // 5x7 Blocky Pixel-Art Bitmap Glyphs for Floating Damage Numbers ('-', '0'..'9')
 const PIXEL_FONT_5X7: Record<string, number[]> = {
   '-': [0, 0, 0, 31, 0, 0, 0],
@@ -3219,30 +3252,7 @@ export const RacingCanvas = React.memo(({
       const activeTrack = sceneObjectsRef.current?.builtTrack;
 
       // AI Shooting Difficulty Configuration (Easy, Normal, Hard)
-      const aiDifficultyConfig =
-        currentDifficulty === 'easy'
-          ? {
-              burstInterval: 0.24,
-              burstCount: 3,
-              reloadDelay: 4.2,
-              spreadRad: THREE.MathUtils.degToRad(9.5),
-              maxRange: 46,
-            }
-          : currentDifficulty === 'hard'
-            ? {
-                burstInterval: 0.11,
-                burstCount: 6,
-                reloadDelay: 1.75,
-                spreadRad: THREE.MathUtils.degToRad(2.6),
-                maxRange: 78,
-              }
-            : {
-                burstInterval: 0.16,
-                burstCount: 4,
-                reloadDelay: 2.8,
-                spreadRad: THREE.MathUtils.degToRad(5.5),
-                maxRange: 62,
-              };
+      const aiDifficultyConfig = AI_DIFFICULTY_CONFIGS[currentDifficulty];
 
       // Tick down collision cooldowns & score banner timer
       for (const key in collisionCooldowns) {
