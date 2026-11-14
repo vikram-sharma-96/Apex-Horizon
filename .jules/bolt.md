@@ -8,3 +8,6 @@
 ## 2025-03-05 - React Re-render Bottleneck in GarageModal
 **Learning:** Found a performance bottleneck where a React component (`App`) re-renders every 50ms due to telemetry updates. Inside `App`, there is a `GarageModal` component which is a very heavy 3D showroom utilizing Three.js and complex customizer UI elements. Without memoization, React reconciles this huge component tree at 20Hz, causing severe unnecessary CPU load when the modal is open in the background (or even when just mounted).
 **Action:** Use `React.memo()` on purely presentational or layout-heavy components (like `GarageModal`) when they are rendered inside a parent (`App.tsx`) that has highly frequent state updates (like telemetry). This prevents wasteful reconciliations.
+## 2026-11-11 - Object Allocation in requestAnimationFrame
+**Learning:** Found a performance bottleneck where a new config object (`aiDifficultyConfig`) was being allocated inside the `animate` loop (running at 60 FPS) in `RacingCanvas.tsx`. This creates unnecessary objects on every frame, leading to garbage collection (GC) thrashing and potential frame drops.
+**Action:** Always extract static configuration objects or arrays outside of high-frequency loops like `requestAnimationFrame` (using module-scope constants or `useMemo`) to conform to the zero-GC optimization pattern.
